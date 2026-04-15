@@ -39,43 +39,28 @@ Open [http://localhost:3000](http://localhost:3000). Your progress saves to `dat
 
 Fly.io's free tier includes persistent volumes, which is what this app needs to save your progress between deploys.
 
-**1. Install flyctl**
+**1. Install flyctl and log in**
 ```bash
 curl -L https://fly.io/install.sh | sh
 fly auth login
 ```
 
-**2. Launch the app** (run from the project root)
-```bash
-fly launch --no-deploy
-```
-This generates a `fly.toml` and `Dockerfile`. When prompted, choose a region close to you and say **no** to adding a database.
+**2. Set your app name**
 
-**3. Add the volume mount to `fly.toml`**
-
-Open `fly.toml` and add this section:
+Open `fly.toml` and change the `app` field to a unique name of your choice:
 ```toml
-[mounts]
-  source = "flashleet_data"
-  destination = "/app/data"
+app = 'your-app-name'
 ```
 
-**4. Create the persistent volume**
+**3. Create the persistent volume**
 ```bash
 fly volumes create flashleet_data --size 1
 ```
-Use the same region you chose in step 2.
 
-**5. Commit `fly.toml`, then deploy**
+**4. Deploy**
 ```bash
-git add fly.toml Dockerfile
-git commit -m "add fly.io deployment config"
 fly deploy
 ```
-
-Yes, commit `fly.toml` — it's just deployment config, nothing sensitive. It means future deploys (`fly deploy`) work from any machine without re-running setup.
-
----
 
 Your app will be live at `https://your-app-name.fly.dev`. Progress (card states, settings) persists in the volume across deploys.
 

@@ -35,17 +35,53 @@ Open [http://localhost:3000](http://localhost:3000). Your progress saves to `dat
 
 ## Deploying
 
-### Railway (recommended)
+### Fly.io (recommended — has a free tier)
 
-Railway gives you a persistent filesystem so your progress saves properly, just like running locally.
+Fly.io's free tier includes persistent volumes, which is what this app needs to save your progress between deploys.
 
-1. Push your fork to GitHub
-2. [railway.app](https://railway.app) → New Project → Deploy from GitHub
-3. Select your repo — Railway auto-detects Next.js and deploys
+**1. Install flyctl**
+```bash
+curl -L https://fly.io/install.sh | sh
+fly auth login
+```
+
+**2. Launch the app** (run from the project root)
+```bash
+fly launch --no-deploy
+```
+This generates a `fly.toml` and `Dockerfile`. When prompted, choose a region close to you and say **no** to adding a database.
+
+**3. Add the volume mount to `fly.toml`**
+
+Open `fly.toml` and add this section:
+```toml
+[mounts]
+  source = "flashleet_data"
+  destination = "/app/data"
+```
+
+**4. Create the persistent volume**
+```bash
+fly volumes create flashleet_data --size 1
+```
+Use the same region you chose in step 2.
+
+**5. Commit `fly.toml`, then deploy**
+```bash
+git add fly.toml Dockerfile
+git commit -m "add fly.io deployment config"
+fly deploy
+```
+
+Yes, commit `fly.toml` — it's just deployment config, nothing sensitive. It means future deploys (`fly deploy`) work from any machine without re-running setup.
+
+---
+
+Your app will be live at `https://your-app-name.fly.dev`. Progress (card states, settings) persists in the volume across deploys.
 
 ### Vercel ⚠️
 
-Vercel's serverless functions run on a read-only filesystem, so **card states and settings won't persist** between sessions. Fine for a demo, not for actual use. Use Railway/Render/Fly.io if you want your progress to save.
+Won't work for real use — Vercel's serverless functions can't write to the filesystem, so your progress won't save.
 
 ---
 

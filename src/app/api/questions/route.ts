@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { readJsonFile } from "@/lib/server-storage";
-import { Question } from "@/lib/types";
+// Bundled at build time — not read from the filesystem at runtime.
+// This means the Fly.io volume mount on /app/data won't shadow it.
+import questions from "../../../../data/questions.json";
 
 export async function GET() {
-  const questions = readJsonFile<Question[]>("questions.json", []);
   return NextResponse.json(questions);
 }

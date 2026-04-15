@@ -135,11 +135,16 @@ export default function LearnPage() {
   }, []);
 
   // ── start a new batch ──
-  const startBatch = useCallback((
-    qs: Question[], cs: Record<number, CardState>, s: UserSettings, sess: LearnSession,
+  // Always re-fetches session from storage so injectedQuestionId set from
+  // other pages (e.g. Search) is picked up even if local state is stale.
+  const startBatch = useCallback(async (
+    qs: Question[], cs: Record<number, CardState>, s: UserSettings,
   ) => {
+    // Get the freshest session — instant from cache after first load
+    const sess = await getLearnSession();
     const size = s.sessionSize ?? 10;
-    const batch = buildQueue(qs, cs, s, sess).slice(0, size);
+    // batchOnly=true: never put snoozed/hidden (not-yet-due) cards in a batch
+    const batch = buildQueue(qs, cs, s, sess, undefined, true).slice(0, size);
     setBatchQueue(batch);
     setBatchIndex(0);
     setSessionDone(false);
@@ -157,7 +162,7 @@ export default function LearnPage() {
 
   useEffect(() => {
     if (!loading && questions.length > 0 && settings && session) {
-      startBatch(questions, cardStates, settings, session);
+      startBatch(questions, cardStates, settings);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading]);
@@ -546,7 +551,7 @@ export default function LearnPage() {
   // ─── Session done / empty ───
   if (sessionDone || (!currentQ && !loading)) {
     const allDone = !sessionDone;
-    const totalQueue = settings && session ? buildQueue(questions, cardStates, settings, session).length : 0;
+    const totalQueue = settings && session ? buildQueue(questions, cardStates, settings, session, undefined, true).length : 0;
     return (
       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", paddingTop: 80 }}>
         <div className="card-surface" style={{ maxWidth: 440, width: "calc(100% - 32px)", padding: "40px 36px", textAlign: "center" }}>
@@ -575,7 +580,7 @@ export default function LearnPage() {
           )}
           {!allDone && totalQueue > 0 && (
             <button className="btn btn-primary" style={{ width: "100%", fontSize: 16 }}
-              onClick={() => { if (settings && session) { setSessionStats({ know: 0, dontknow: 0 }); startBatch(questions, cardStatesRef.current, settings, sessionRef.current!); } }}>
+              onClick={() => { if (settings) { setSessionStats({ know: 0, dontknow: 0 }); startBatch(questions, cardStatesRef.current, settings); } }}>
               Continue — next {Math.min(settings?.sessionSize ?? 10, totalQueue)} cards →
             </button>
           )}
@@ -761,16 +766,9 @@ export default function LearnPage() {
               overflow: "hidden",
             }}>
               {/* back header */}
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                  <DifficultyBadge difficulty={currentQ.difficulty} />
-                  <span style={{ fontWeight: 900, fontSize: 14 }}>{currentQ.title}</span>
-                </div>
-                <button data-no-drag="true" className="btn btn-ghost"
-                  onClick={e => { e.stopPropagation(); setFlipped(false); }}
-                  style={{ padding: "4px 10px", fontSize: 11 }}>
-                  ↩ Flip
-                </button>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 14 }}>
+                <DifficultyBadge difficulty={currentQ.difficulty} />
+                <span style={{ fontWeight: 900, fontSize: 14 }}>{currentQ.title}</span>
               </div>
 
               {/* AI error */}

@@ -224,7 +224,6 @@ export default function StatsPage() {
           {(["Easy", "Medium", "Hard"] as const).map(d => {
             const b = stats.byDifficulty[d] ?? { total: 0, mastered: 0, attempted: 0 };
             const pct = b.total > 0 ? Math.round((b.mastered / b.total) * 100) : 0;
-            const attemptedPct = b.total > 0 ? Math.round((b.attempted / b.total) * 100) : 0;
             return (
               <div key={d}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
@@ -237,12 +236,6 @@ export default function StatsPage() {
                   <span style={{ fontWeight: 900, fontSize: 14, color: "var(--purple)" }}>{pct}%</span>
                 </div>
                 <div className="progress-strip">
-                  {/* attempted bar */}
-                  <div style={{
-                    height: "100%", borderRadius: 5, width: `${attemptedPct}%`,
-                    background: "var(--bg-3)", position: "absolute",
-                    transition: "width 0.5s",
-                  }} />
                   <div className="progress-strip-fill" style={{ width: `${pct}%` }} />
                 </div>
               </div>

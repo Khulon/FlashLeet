@@ -15,6 +15,8 @@ export function buildQueue(
   settings: UserSettings,
   session: LearnSession,
   excludeId?: number,
+  /** When true, upcoming (not-yet-due) cards are excluded — used for batch building */
+  batchOnly = false,
 ): Question[] {
   const filtered = questions.filter((q) => {
     if (excludeId !== undefined && q.id === excludeId) return false;
@@ -50,16 +52,25 @@ export function buildQueue(
       new Date(cardStates[b.id].nextDueAt).getTime()
     );
 
-  // New cards, by question id (stable order)
+  // New cards — never seen (no state) OR progress=new AND not snoozed
+  // Key: a snoozed new card has a future nextDueAt and must be excluded here
   const newCards = rest
-    .filter((q) => !cardStates[q.id] || cardStates[q.id].progress === "new")
+    .filter((q) => {
+      const st = cardStates[q.id];
+      if (!st) return true;                     // truly unseen
+      if (st.progress !== "new") return false;
+      return new Date(st.nextDueAt) <= now;     // snoozed new cards have future nextDueAt
+    })
     .sort((a, b) => a.id - b.id);
 
-  // Not-yet-due cards, soonest first
+  // Not-yet-due cards (soonest first) — includes snoozed/hidden "new" cards
   const upcoming = rest
     .filter((q) => {
       const st = cardStates[q.id];
-      return st && st.progress !== "new" && !isDue(st);
+      if (!st) return false;
+      if (isDue(st)) return false;
+      // non-new cards that aren't due yet, plus snoozed/hidden new cards
+      return st.progress !== "new" || new Date(st.nextDueAt) > now;
     })
     .sort((a, b) =>
       new Date(cardStates[a.id].nextDueAt).getTime() -
@@ -72,6 +83,7 @@ export function buildQueue(
     ...arr.filter((q) => recentIds.has(q.id)),
   ];
 
+  if (batchOnly) return [...injected, ...order(due), ...order(newCards)];
   return [...injected, ...order(due), ...order(newCards), ...order(upcoming)];
 }
 

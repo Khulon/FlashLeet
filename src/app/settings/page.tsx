@@ -18,7 +18,7 @@ const AI_PROVIDERS: { value: AiProvider; label: string; defaultModel: string; de
   { value: "custom",   label: "Custom",   defaultModel: "gpt-4o-mini",  defaultBase: "" },
 ];
 
-const SESSION_SIZES = [5, 10, 15, 20];
+const SESSION_SIZES = [2, 3, 5, 10];
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<UserSettings | null>(null);

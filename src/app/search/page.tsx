@@ -24,6 +24,7 @@ export default function SearchPage() {
   const filterBodyRef = useRef<HTMLDivElement>(null);
   const [filterHeight, setFilterHeight] = useState(0);
   const [previewQuestion, setPreviewQuestion] = useState<Question | null>(null);
+  const [previewTab, setPreviewTab] = useState<"problem" | "notes" | "code">("problem");
   const [addedToQueue, setAddedToQueue] = useState<number | null>(null);
 
   // Virtualizer
@@ -269,7 +270,7 @@ export default function SearchPage() {
               }}
             >
               <div
-                onClick={() => setPreviewQuestion(q)}
+                onClick={() => { setPreviewQuestion(q); setPreviewTab("problem"); }}
                 style={{
                   padding: "12px 14px",
                   background: "var(--bg-card)", border: "2px solid var(--border)", borderRadius: 14,
@@ -331,78 +332,118 @@ export default function SearchPage() {
               onClick={e => e.stopPropagation()}
               style={{
                 background: "var(--bg-card)", border: "2px solid var(--border)", borderRadius: 18,
-                width: "100%", maxWidth: 640, maxHeight: "85vh",
+                width: "100%", maxWidth: 640, height: "85vh",
                 display: "flex", flexDirection: "column",
                 overflow: "hidden", pointerEvents: "auto",
                 animation: "popIn 0.2s cubic-bezier(0.34,1.56,0.64,1)",
               }}
             >
               {/* Modal header */}
-              <div style={{ padding: "16px 20px", borderBottom: "2px solid var(--border)", display: "flex", alignItems: "flex-start", gap: 10 }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", marginBottom: 4 }}>#{q.id}</div>
-                  <div style={{ fontWeight: 900, fontSize: 17, lineHeight: 1.3, marginBottom: 8 }}>{q.title}</div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                    <DifficultyBadge difficulty={q.difficulty} />
-                    <ProgressBadge state={progress} />
-                    {(st?.successStreak ?? 0) > 0 && (
-                      <span style={{ fontSize: 11, fontWeight: 800, color: "#c47c00", display: "inline-flex", alignItems: "center", gap: 1 }}><Flame size={11} />×{st!.successStreak}</span>
-                    )}
+              <div style={{ padding: "16px 20px 0", borderBottom: "2px solid var(--border)" }}>
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 12 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", marginBottom: 4 }}>#{q.id}</div>
+                    <div style={{ fontWeight: 900, fontSize: 17, lineHeight: 1.3, marginBottom: 8 }}>{q.title}</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                      <DifficultyBadge difficulty={q.difficulty} />
+                      <ProgressBadge state={progress} />
+                      {(st?.successStreak ?? 0) > 0 && (
+                        <span style={{ fontSize: 11, fontWeight: 800, color: "#c47c00", display: "inline-flex", alignItems: "center", gap: 1 }}><Flame size={11} />×{st!.successStreak}</span>
+                      )}
+                    </div>
                   </div>
+                  <button onClick={() => setPreviewQuestion(null)}
+                    style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", padding: 4, flexShrink: 0 }}>
+                    <X size={20} />
+                  </button>
                 </div>
-                <button
-                  onClick={() => setPreviewQuestion(null)}
-                  style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", padding: 4, flexShrink: 0 }}
-                >
-                  <X size={20} />
-                </button>
+                {/* Tabs */}
+                <div style={{ display: "flex", gap: 4 }}>
+                  {(["problem", "notes", "code"] as const).map(tab => (
+                    <button key={tab} onClick={() => setPreviewTab(tab)} style={{
+                      fontFamily: "var(--font-sans)", fontWeight: 800, fontSize: 13,
+                      padding: "7px 16px", border: "none", cursor: "pointer",
+                      background: "none", textTransform: "capitalize",
+                      borderBottom: previewTab === tab ? "2px solid var(--purple)" : "2px solid transparent",
+                      color: previewTab === tab ? "var(--purple)" : "var(--text-muted)",
+                      marginBottom: -2,
+                      transition: "color 0.15s",
+                    }}>{tab}</button>
+                  ))}
+                </div>
               </div>
 
               {/* Scrollable body */}
               <div style={{ flex: 1, overflowY: "auto", padding: "20px" }}>
-                {/* Description */}
-                <p style={{ fontSize: 14, lineHeight: 1.7, color: "var(--text)", whiteSpace: "pre-wrap", marginBottom: 20 }}>{q.description}</p>
 
-                {/* Examples */}
-                {q.examples.length > 0 && (
-                  <div style={{ marginBottom: 20 }}>
-                    <div style={{ fontSize: 11, fontWeight: 800, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>Examples</div>
-                    {q.examples.map((ex, i) => (
-                      <div key={i} style={{ background: "var(--bg)", border: "2px solid var(--border)", borderRadius: 10, padding: "12px 14px", marginBottom: 8, fontSize: 13 }}>
-                        <div><span style={{ fontWeight: 700, color: "var(--text-muted)" }}>Input:</span> <code style={{ fontFamily: "var(--font-mono, monospace)" }}>{ex.input}</code></div>
-                        <div><span style={{ fontWeight: 700, color: "var(--text-muted)" }}>Output:</span> <code style={{ fontFamily: "var(--font-mono, monospace)" }}>{ex.output}</code></div>
-                        {ex.explanation && <div style={{ marginTop: 4, color: "var(--text-dim)", fontSize: 12 }}>{ex.explanation}</div>}
-                      </div>
-                    ))}
-                  </div>
-                )}
+                {previewTab === "problem" && <>
+                  <p style={{ fontSize: 14, lineHeight: 1.7, color: "var(--text)", whiteSpace: "pre-wrap", marginBottom: 20 }}>{q.description}</p>
 
-                {/* Constraints */}
-                {q.constraints.length > 0 && (
-                  <div style={{ marginBottom: 20 }}>
-                    <div style={{ fontSize: 11, fontWeight: 800, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>Constraints</div>
-                    <ul style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 4 }}>
-                      {q.constraints.map((c, i) => (
-                        <li key={i} style={{ fontSize: 13, color: "var(--text-dim)", fontFamily: "var(--font-mono, monospace)" }}>{c}</li>
+                  {q.examples.length > 0 && (
+                    <div style={{ marginBottom: 20 }}>
+                      <div style={{ fontSize: 11, fontWeight: 800, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>Examples</div>
+                      {q.examples.map((ex, i) => (
+                        <div key={i} style={{ background: "var(--bg)", border: "2px solid var(--border)", borderRadius: 10, padding: "12px 14px", marginBottom: 8, fontSize: 13 }}>
+                          <div><span style={{ fontWeight: 700, color: "var(--text-muted)" }}>Input:</span> <code style={{ fontFamily: "var(--font-mono)" }}>{ex.input}</code></div>
+                          <div><span style={{ fontWeight: 700, color: "var(--text-muted)" }}>Output:</span> <code style={{ fontFamily: "var(--font-mono)" }}>{ex.output}</code></div>
+                          {ex.explanation && <div style={{ marginTop: 4, color: "var(--text-dim)", fontSize: 12 }}>{ex.explanation}</div>}
+                        </div>
                       ))}
-                    </ul>
-                  </div>
+                    </div>
+                  )}
+
+                  {q.constraints.length > 0 && (
+                    <div style={{ marginBottom: 20 }}>
+                      <div style={{ fontSize: 11, fontWeight: 800, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>Constraints</div>
+                      <ul style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 4 }}>
+                        {q.constraints.map((c, i) => (
+                          <li key={i} style={{ fontSize: 13, color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>{c}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {q.follow_up && (
+                    <div style={{ marginBottom: 20, padding: "10px 14px", background: "var(--bg)", border: "2px solid var(--border)", borderRadius: 10 }}>
+                      <div style={{ fontSize: 11, fontWeight: 800, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>Follow-up</div>
+                      <p style={{ margin: 0, fontSize: 13, color: "var(--text-dim)" }}>{q.follow_up}</p>
+                    </div>
+                  )}
+
+                  {q.tags.length > 0 && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {q.tags.map(t => <span key={t} className="tag" style={{ fontSize: 11 }}>{t}</span>)}
+                    </div>
+                  )}
+                </>}
+
+                {previewTab === "notes" && (
+                  st?.notes ? (
+                    <p style={{ fontSize: 14, lineHeight: 1.7, color: "var(--text)", whiteSpace: "pre-wrap", margin: 0 }}>{st.notes}</p>
+                  ) : (
+                    <div style={{ textAlign: "center", padding: "48px 0", color: "var(--text-muted)", fontWeight: 600 }}>
+                      No notes yet — review this card in Learn to add some.
+                    </div>
+                  )
                 )}
 
-                {/* Follow-up */}
-                {q.follow_up && (
-                  <div style={{ marginBottom: 20, padding: "10px 14px", background: "var(--bg)", border: "2px solid var(--border)", borderRadius: 10 }}>
-                    <span style={{ fontSize: 11, fontWeight: 800, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.08em" }}>Follow-up</span>
-                    <p style={{ margin: "6px 0 0", fontSize: 13, color: "var(--text-dim)" }}>{q.follow_up}</p>
-                  </div>
+                {previewTab === "code" && (
+                  st?.code ? (
+                    <pre style={{
+                      margin: 0, padding: "14px 16px",
+                      background: "var(--bg)", borderRadius: 10,
+                      border: "2px solid var(--border)",
+                      fontFamily: "var(--font-mono)", fontSize: 13,
+                      lineHeight: 1.6, color: "var(--text)",
+                      overflowX: "auto", whiteSpace: "pre-wrap", wordBreak: "break-all",
+                    }}>{st.code}</pre>
+                  ) : (
+                    <div style={{ textAlign: "center", padding: "48px 0", color: "var(--text-muted)", fontWeight: 600 }}>
+                      No code yet — review this card in Learn to add some.
+                    </div>
+                  )
                 )}
 
-                {/* Tags */}
-                {q.tags.length > 0 && (
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                    {q.tags.map(t => <span key={t} className="tag" style={{ fontSize: 11 }}>{t}</span>)}
-                  </div>
-                )}
               </div>
 
               {/* Modal footer */}

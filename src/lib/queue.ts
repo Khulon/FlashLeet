@@ -44,7 +44,13 @@ export function buildQueue(
     for (const id of (session.injectedQuestionIds ?? [])) {
       if (id === excludeId || excludeIds?.has(id)) continue;
       const q = filtered.find(q => q.id === id);
-      if (q) injected.push(q);
+      if (!q) continue;
+      // Only pin to the top if the card is unseen or actually due.
+      // Already-answered, not-yet-due cards fall into their natural bucket.
+      const st = cardStates[q.id];
+      if (!st || st.progress === "new" || isDue(st)) {
+        injected.push(q);
+      }
     }
   }
 

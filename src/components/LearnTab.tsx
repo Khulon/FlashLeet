@@ -8,7 +8,7 @@ import {
   getQuestions, getCardStates, saveCardState,
   getUserSettings, getLearnSession, saveLearnSession,
 } from "@/lib/storage";
-import { createInitialCardState, updateCardState } from "@/lib/scheduler";
+import { createInitialCardState, updateCardState, isDue } from "@/lib/scheduler";
 import { buildQueue } from "@/lib/queue";
 import { useTimer } from "@/lib/useTimer";
 import { useDebounce } from "@/lib/useDebounce";
@@ -165,11 +165,17 @@ export default function LearnPage() {
     const sess = await getLearnSession();
     const size = s.sessionSize ?? 10;
 
-    // Injected cards go at the front in order
+    // Injected cards go at the front — but only if unseen or actually due.
+    // Cards that were already answered and aren't due yet are "stale" injections:
+    // they get cleaned out of injectedQuestionIds without entering the batch.
     const injectedIds: number[] = sess.injectedQuestionIds ?? [];
     const injected = injectedIds
       .map(id => qs.find(q => q.id === id))
-      .filter((q): q is Question => !!q)
+      .filter((q): q is Question => {
+        if (!q) return false;
+        const st = cs[q.id];
+        return !st || st.progress === "new" || isDue(st);  // unseen or due only
+      })
       .slice(0, size);
 
     // Fill remaining from natural priority queue (excluding injected)
@@ -186,10 +192,15 @@ export default function LearnPage() {
     setSessionDone(false);
     if (batch.length === 0) { setCurrentQ(null); return; }
 
-    // Only clear the injected IDs that were actually pulled into this batch.
-    // Any that didn't fit (size limit) stay queued for the next session.
+    // Remove IDs that were consumed OR are stale (answered, not due).
+    // IDs that didn't fit the size limit stay for the next session.
     const consumedIds = new Set(injected.map(q => q.id));
-    const remainingInjectedIds = injectedIds.filter(id => !consumedIds.has(id));
+    const remainingInjectedIds = injectedIds.filter(id => {
+      if (consumedIds.has(id)) return false;                // consumed into batch
+      const st = cs[id];
+      if (st && st.progress !== "new" && !isDue(st)) return false;  // stale, drop it
+      return true;
+    });
 
     const finalSess: LearnSession = {
       injectedQuestionIds: remainingInjectedIds,

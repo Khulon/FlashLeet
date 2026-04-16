@@ -18,6 +18,7 @@ export interface Question {
   follow_up?: string;
   slug: string;
   tags: string[];
+  link?: string;
 }
 
 export interface CardState {

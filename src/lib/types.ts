@@ -63,6 +63,8 @@ export interface UserSettings {
 }
 
 export interface LearnSession {
-  injectedQuestionId: number | null;
+  injectedQuestionIds: number[];  // waiting to be pulled into the next batch
   recentQuestionIds: number[];
+  batchIds?: number[];            // IDs of the current in-progress local batch
+  batchIndex?: number;            // position within that batch
 }

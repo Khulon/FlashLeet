@@ -3,12 +3,19 @@ import { readJsonFile, writeJsonFile } from "@/lib/server-storage";
 import { LearnSession } from "@/lib/types";
 
 const DEFAULT_SESSION: LearnSession = {
-  injectedQuestionId: null,
+  injectedQuestionIds: [],
   recentQuestionIds: [],
 };
 
 export async function GET() {
-  const session = readJsonFile<LearnSession>("learn-session.json", DEFAULT_SESSION);
+  const raw = readJsonFile<any>("learn-session.json", DEFAULT_SESSION);
+  // Backfill: old format had injectedQuestionId (singular), new format uses injectedQuestionIds (array)
+  const session: LearnSession = {
+    ...DEFAULT_SESSION,
+    ...raw,
+    injectedQuestionIds: raw.injectedQuestionIds
+      ?? (raw.injectedQuestionId != null ? [raw.injectedQuestionId] : []),
+  };
   return NextResponse.json(session);
 }
 

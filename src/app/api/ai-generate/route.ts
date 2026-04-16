@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { DEFAULT_SR } from "@/lib/scheduler";
 import { readJsonFile } from "@/lib/server-storage";
 import { UserSettings } from "@/lib/types";
 
@@ -16,6 +17,7 @@ const DEFAULT_SETTINGS: UserSettings = {
   selectedDifficulties: ["Easy", "Medium", "Hard"],
   selectedTags: [],
   sessionSize: 10,
+  sr: DEFAULT_SR,
   ai: {
     provider: "openai",
     apiKey: "",

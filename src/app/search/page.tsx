@@ -69,7 +69,10 @@ export default function SearchPage() {
     setAddedToQueue(q.id);
     setTimeout(() => setAddedToQueue(null), 2000);
     const sess = await getLearnSession();
-    await saveLearnSession({ ...sess, injectedQuestionId: q.id });
+    const existing = sess.injectedQuestionIds ?? [];
+    // Append to queue (avoid duplicates — move to end if already queued)
+    const updated = [...existing.filter(id => id !== q.id), q.id];
+    await saveLearnSession({ ...sess, injectedQuestionIds: updated });
   };
 
   // Recompute list's distance from page top whenever the filter panel animates open/closed
@@ -287,7 +290,7 @@ export default function SearchPage() {
                     className="btn btn-primary"
                     onClick={e => { e.stopPropagation(); handleAddToQueue(q); }}
                     style={{ padding: "5px 12px", fontSize: 12, borderRadius: 10, flexShrink: 0, display: "flex", alignItems: "center", gap: 4,
-                      background: queued ? "var(--green)" : undefined, borderColor: queued ? "var(--green)" : undefined }}
+                      background: queued ? "var(--green)" : undefined, borderColor: queued ? "var(--green-dk)" : undefined, boxShadow: queued ? "0 4px 0 var(--green-dk)" : undefined }}
                   >
                     {queued ? "Added!" : <><Plus size={12} /> Queue</>}
                   </button>
@@ -459,7 +462,7 @@ export default function SearchPage() {
                   className="btn btn-primary"
                   onClick={() => handleAddToQueue(q)}
                   style={{ padding: "8px 18px", fontSize: 13, display: "flex", alignItems: "center", gap: 6,
-                    background: queued ? "var(--green)" : undefined, borderColor: queued ? "var(--green)" : undefined }}
+                    background: queued ? "var(--green)" : undefined, borderColor: queued ? "var(--green-dk)" : undefined, boxShadow: queued ? "0 4px 0 var(--green-dk)" : undefined }}
                 >
                   {queued ? "Added to Queue!" : <><Plus size={14} /> Add to Queue</>}
                 </button>

@@ -17,9 +17,12 @@ export function buildQueue(
   excludeId?: number,
   /** When true, upcoming (not-yet-due) cards are excluded — used for batch building */
   batchOnly = false,
+  /** Extra set of IDs to exclude — used by global queue display to hide local batch cards */
+  excludeIds?: Set<number>,
 ): Question[] {
   const filtered = questions.filter((q) => {
     if (excludeId !== undefined && q.id === excludeId) return false;
+    if (excludeIds?.has(q.id)) return false;
     const diffOk = settings.selectedDifficulties.includes(q.difficulty);
     const tagOk =
       settings.selectedTags.length === 0 ||
@@ -32,14 +35,22 @@ export function buildQueue(
   const recentIds = new Set(session.recentQuestionIds.slice(-5));
   const now = new Date();
 
-  // Injected card goes first (skip if it's the excluded one)
+  // Injected cards go first in the GLOBAL queue display only (batchOnly=false),
+  // in the order they were added. When building a local batch (batchOnly=true)
+  // they are ignored — the batch takes the top-N by natural priority only.
+  const injectedIds = new Set(session.injectedQuestionIds ?? []);
   const injected: Question[] = [];
-  if (session.injectedQuestionId !== null && session.injectedQuestionId !== excludeId) {
-    const q = filtered.find((q) => q.id === session.injectedQuestionId);
-    if (q) injected.push(q);
+  if (!batchOnly) {
+    for (const id of (session.injectedQuestionIds ?? [])) {
+      if (id === excludeId || excludeIds?.has(id)) continue;
+      const q = filtered.find(q => q.id === id);
+      if (q) injected.push(q);
+    }
   }
 
-  const rest = filtered.filter((q) => q.id !== session.injectedQuestionId);
+  const rest = filtered.filter(q =>
+    batchOnly ? true : !injectedIds.has(q.id)
+  );
 
   // Due cards (not new), oldest nextDueAt first
   const due = rest

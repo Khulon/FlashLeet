@@ -120,6 +120,11 @@ export function buildTypedQueues(
 
 // ── Public: interleaved batch builder ────────────────────────────────
 
+export interface BatchResult {
+  questions: Question[];
+  types: CardType[];
+}
+
 /**
  * Builds a batch of up to `size` cards interleaved according to `ratio`.
  *
@@ -133,7 +138,7 @@ export function buildInterleavedBatch(
   cardStates: Record<number, CardState>,
   settings: UserSettings,
   session: LearnSession,
-): Question[] {
+): BatchResult {
   const size = settings.sessionSize ?? 10;
   const ratio: CardMixRatio = settings.cardMix ?? { injected: 0, due: 7, new: 3 };
   const total = ratio.injected + ratio.due + ratio.new || 10;
@@ -148,24 +153,35 @@ export function buildInterleavedBatch(
   );
 
   let injIdx = 0, dueIdx = 0, newIdx = 0;
-  const counts = { injected: 0, due: 0, new: 0 };
+
+  // Seed counts from the current rolling window so the deficit carries across batches.
+  // The window resets every 10 cards, so we work within a [0..9] slot range.
+  const window = session.mixWindowTypes ?? [];
+  const windowSize = window.length; // 0–9; at 10 it was already reset before this call
+  const counts = {
+    injected: window.filter(t => t === "injected").length,
+    due:      window.filter(t => t === "due").length,
+    new:      window.filter(t => t === "new").length,
+  };
+
   const targets = {
     injected: ratio.injected / total,
     due: ratio.due / total,
     new: ratio.new / total,
   };
 
-  const result: Question[] = [];
+  const resultQs: Question[] = [];
+  const resultTypes: CardType[] = [];
 
   for (let slot = 0; slot < size; slot++) {
-    // Desired cumulative count for each type at this position
+    // Global window position so Bresenham accounts for already-seen cards
+    const windowSlot = windowSize + slot;
     const desired = {
-      injected: targets.injected * (slot + 1),
-      due: targets.due * (slot + 1),
-      new: targets.new * (slot + 1),
+      injected: targets.injected * (windowSlot + 1),
+      due: targets.due * (windowSlot + 1),
+      new: targets.new * (windowSlot + 1),
     };
 
-    // Sort types by deficit (desired - actual), highest first
     const order: CardType[] = (["injected", "due", "new"] as CardType[]).sort(
       (a, b) => (desired[b] - counts[b]) - (desired[a] - counts[a]),
     );
@@ -173,20 +189,20 @@ export function buildInterleavedBatch(
     let picked = false;
     for (const type of order) {
       if (type === "injected" && injIdx < injected.length) {
-        result.push(injected[injIdx++]); counts.injected++; picked = true; break;
+        resultQs.push(injected[injIdx++]); resultTypes.push("injected"); counts.injected++; picked = true; break;
       }
       if (type === "due" && dueIdx < due.length) {
-        result.push(due[dueIdx++]); counts.due++; picked = true; break;
+        resultQs.push(due[dueIdx++]); resultTypes.push("due"); counts.due++; picked = true; break;
       }
       if (type === "new" && newIdx < newCards.length) {
-        result.push(newCards[newIdx++]); counts.new++; picked = true; break;
+        resultQs.push(newCards[newIdx++]); resultTypes.push("new"); counts.new++; picked = true; break;
       }
     }
 
-    if (!picked) break; // no more cards of any type
+    if (!picked) break;
   }
 
-  return result;
+  return { questions: resultQs, types: resultTypes };
 }
 
 // ── Legacy: flat queue used by selectNextCard ─────────────────────────

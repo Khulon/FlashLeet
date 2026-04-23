@@ -75,5 +75,8 @@ export interface LearnSession {
   injectedQuestionIds: number[];  // waiting to be pulled into the next batch
   recentQuestionIds: number[];
   batchIds?: number[];            // IDs of the current in-progress local batch
+  batchTypes?: CardType[];        // type of each card in the batch (parallel to batchIds)
   batchIndex?: number;            // position within that batch
+  mixWindowTypes?: CardType[];    // rolling 10-card window of types seen (resets at 10)
+  mixWindowRatio?: CardMixRatio;  // snapshot of cardMix when current window started
 }

@@ -6,10 +6,11 @@ import { Brain, CheckCircle2, XCircle, List, Info } from "lucide-react";
 import { Question, CardState, UserSettings, LearnSession } from "@/lib/types";
 import {
   getQuestions, getCardStates, saveCardState,
-  getUserSettings, getLearnSession, saveLearnSession,
+  getUserSettings, getLearnSession, saveLearnSession, invalidateCache,
 } from "@/lib/storage";
 import { createInitialCardState, updateCardState, isDue } from "@/lib/scheduler";
 import { buildInterleavedBatch } from "@/lib/queue";
+import { CardType } from "@/lib/types";
 import { useTimer } from "@/lib/useTimer";
 import { useDebounce } from "@/lib/useDebounce";
 import QueueDrawer from "@/components/QueueDrawer";
@@ -50,12 +51,15 @@ export default function LearnPage() {
 
   // ── session batch ──
   const [batchQueue, setBatchQueue] = useState<Question[]>([]);
+  const [batchTypes, setBatchTypes] = useState<CardType[]>([]);
   const [batchIndex, setBatchIndex] = useState(0);
   const [sessionDone, setSessionDone] = useState(false);
-  const batchQueueRef = useRef<Question[]>([]);
-  const batchIndexRef = useRef(0);
-  batchQueueRef.current = batchQueue;
-  batchIndexRef.current = batchIndex;
+  const batchQueueRef  = useRef<Question[]>([]);
+  const batchTypesRef  = useRef<CardType[]>([]);
+  const batchIndexRef  = useRef(0);
+  batchQueueRef.current  = batchQueue;
+  batchTypesRef.current  = batchTypes;
+  batchIndexRef.current  = batchIndex;
 
   // ── swipe ──
   const dragXRef      = useRef(0);
@@ -98,13 +102,19 @@ export default function LearnPage() {
 
   const timer = useTimer();
 
-  // Pause timer on tab switch; re-sync session when returning
+  // Pause timer on tab switch; re-sync session + settings when returning
   const pathname = usePathname();
   const isLearnTab = pathname === "/learn" || pathname === "/";
   useEffect(() => {
     if (isLearnTab) {
       timer.resume();
-      if (!loading) getLearnSession().then(sess => setSession(sess));
+      if (!loading) {
+        invalidateCache();
+        Promise.all([getLearnSession(), getUserSettings()]).then(([sess, s]) => {
+          setSession(sess);
+          setSettings(s);
+        });
+      }
     } else {
       timer.pause();
     }
@@ -139,8 +149,14 @@ export default function LearnPage() {
           .filter((q): q is Question => !!q);
 
         if (batch.length > 0 && savedIndex < batch.length) {
+          // If there are no saved types (old session before this feature), rebuild the batch
+          if (!session.batchTypes || session.batchTypes.length === 0) {
+            startBatch(questions, cardStates, settings);
+            return;
+          }
           const resumeIndex = savedIndex;
           setBatchQueue(batch);
+          setBatchTypes(session.batchTypes);
           setBatchIndex(resumeIndex);
           setSessionDone(false);
           const current = batch[resumeIndex];
@@ -164,11 +180,23 @@ export default function LearnPage() {
   ) => {
     const sess = await getLearnSession();
 
+    // Reset the mix window only if settings changed since it was last snapshotted.
+    const currentMix = s.cardMix ?? { injected: 0, due: 7, new: 3 };
+    const snapshotMix = sess.mixWindowRatio;
+    const settingsChanged = !snapshotMix
+      || snapshotMix.injected !== currentMix.injected
+      || snapshotMix.due      !== currentMix.due
+      || snapshotMix.new      !== currentMix.new;
+
+    const sessForBatch: LearnSession = settingsChanged
+      ? { ...sess, mixWindowTypes: [], mixWindowRatio: currentMix }
+      : sess;
+
     // Build the interleaved batch according to the card mix ratio.
-    // Injected cards are now spread throughout the batch (not front-loaded).
-    const batch = buildInterleavedBatch(qs, cs, s, sess);
+    const { questions: batch, types } = buildInterleavedBatch(qs, cs, s, sessForBatch);
 
     setBatchQueue(batch);
+    setBatchTypes(types);
     setBatchIndex(0);
     setSessionDone(false);
     if (batch.length === 0) { setCurrentQ(null); return; }
@@ -187,7 +215,10 @@ export default function LearnPage() {
       injectedQuestionIds: remainingInjectedIds,
       recentQuestionIds: sess.recentQuestionIds,
       batchIds: batch.map(q => q.id),
+      batchTypes: types,
       batchIndex: 0,
+      mixWindowTypes: sessForBatch.mixWindowTypes,
+      mixWindowRatio: sessForBatch.mixWindowRatio,
     };
     const first = batch[0];
     setCurrentQ(first); setFlipped(false); setModalOpen(false);
@@ -207,9 +238,11 @@ export default function LearnPage() {
     const finalSess: LearnSession = {
       injectedQuestionIds: sess.injectedQuestionIds ?? [],
       recentQuestionIds: [...sess.recentQuestionIds, completedId].slice(-10),
-      // Clear saved batch when done, persist progress otherwise
       batchIds: isFinished ? [] : batch.map(q => q.id),
+      batchTypes: isFinished ? [] : sess.batchTypes,
       batchIndex: isFinished ? 0 : nextIndex,
+      mixWindowTypes: sess.mixWindowTypes,   // managed by handleAnswer
+      mixWindowRatio:  sess.mixWindowRatio,  // managed by handleAnswer / startBatch
     };
     setSession(finalSess); saveLearnSession(finalSess);
 
@@ -282,6 +315,22 @@ export default function LearnPage() {
     await saveCardState(updated);
     const newCS = { ...cardStatesRef.current, [q.id]: updated };
     setCardStates(newCS);
+
+    // Update the rolling mix window before advancing
+    const answeredType = batchTypesRef.current[batchIndexRef.current] ?? "new";
+    if (sessionRef.current) {
+      const prevWindow = sessionRef.current.mixWindowTypes ?? [];
+      const resetting = prevWindow.length >= 9; // this card completes the 10-slot window
+      const newWindow = resetting ? [] : [...prevWindow, answeredType];
+      const newRatio  = resetting
+        ? (settingsRef.current?.cardMix ?? { injected: 0, due: 7, new: 3 }) // snapshot fresh ratio
+        : sessionRef.current.mixWindowRatio;
+      const updatedSess = { ...sessionRef.current, mixWindowTypes: newWindow, mixWindowRatio: newRatio };
+      setSession(updatedSess);
+      saveLearnSession(updatedSess);
+      sessionRef.current = updatedSess;
+    }
+
     await new Promise(r => setTimeout(r, 500));
     setResultFlash(null); resetDragStyle();
     if (sessionRef.current) advanceInBatch(newCS, sessionRef.current, q.id);
@@ -602,6 +651,50 @@ export default function LearnPage() {
           <span>{batchIndex} / {batchSize}</span>
           <span>{batchProgress}%</span>
         </div>
+
+        {/* Card mix running window — 10 fixed slots, fills as you answer */}
+        {settings && (() => {
+          // Use the snapshotted ratio from when this window started, not live settings
+          const mix = session?.mixWindowRatio ?? settings.cardMix ?? { injected: 0, due: 7, new: 3 };
+          const mixWindow = session?.mixWindowTypes ?? [];
+          const typeColor = (t: CardType) =>
+            t === "injected" ? "var(--purple)" : t === "due" ? "#ff9f43" : "var(--green-dk)";
+
+          const inj = mixWindow.filter(t => t === "injected").length;
+          const due = mixWindow.filter(t => t === "due").length;
+          const nw  = mixWindow.filter(t => t === "new").length;
+
+          return (
+            <div style={{ marginTop: 8 }}>
+              {/* 10 fixed slots */}
+              <div style={{ display: "flex", gap: 2, height: 6 }}>
+                {Array.from({ length: 10 }, (_, i) => {
+                  const t = mixWindow[i];
+                  return (
+                    <div key={i} style={{
+                      flex: 1, borderRadius: 2,
+                      background: t ? typeColor(t) : "var(--bg-2)",
+                      transition: "background 0.3s",
+                    }} />
+                  );
+                })}
+              </div>
+              {/* Counts: seen / target */}
+              <div style={{ display: "flex", gap: 12, marginTop: 4 }}>
+                {([
+                  { label: "INJ", seen: inj, target: mix.injected, color: "var(--purple)" },
+                  { label: "DUE", seen: due, target: mix.due,      color: "#ff9f43" },
+                  { label: "NEW", seen: nw,  target: mix.new,      color: "var(--green-dk)" },
+                ] as const).filter(x => x.target > 0).map(({ label, seen, target, color }) => (
+                  <span key={label} style={{ fontSize: 10, fontWeight: 800, color, display: "flex", alignItems: "center", gap: 3 }}>
+                    <span style={{ width: 6, height: 6, borderRadius: 2, background: color, display: "inline-block" }} />
+                    {seen}/{target} {label}
+                  </span>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       <FlashCard

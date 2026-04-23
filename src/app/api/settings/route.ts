@@ -7,6 +7,7 @@ const DEFAULT_SETTINGS: UserSettings = {
   selectedDifficulties: ["Easy", "Medium", "Hard"],
   selectedTags: [],
   sessionSize: 10,
+  cardMix: { injected: 0, due: 7, new: 3 },
   sr: DEFAULT_SR,
   ai: {
     provider: "openai",
@@ -24,6 +25,7 @@ export async function GET() {
   const merged: UserSettings = {
     ...DEFAULT_SETTINGS,
     ...settings,
+    cardMix: { ...DEFAULT_SETTINGS.cardMix, ...(settings.cardMix ?? {}) },
     sr: { ...DEFAULT_SETTINGS.sr, ...(settings.sr ?? {}) },
     ai: { ...DEFAULT_SETTINGS.ai, ...(settings.ai ?? {}) },
   };

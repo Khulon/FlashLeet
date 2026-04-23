@@ -1,5 +1,195 @@
-import { Question, CardState, UserSettings, LearnSession } from "./types";
+import { Question, CardState, UserSettings, LearnSession, CardMixRatio, CardType } from "./types";
 import { isDue } from "./scheduler";
+
+// ── Shared filtering + bucket helpers ────────────────────────────────
+
+function filterQuestions(
+  questions: Question[],
+  settings: UserSettings,
+  excludeId?: number,
+  excludeIds?: Set<number>,
+): Question[] {
+  return questions.filter((q) => {
+    if (excludeId !== undefined && q.id === excludeId) return false;
+    if (excludeIds?.has(q.id)) return false;
+    const diffOk = settings.selectedDifficulties.includes(q.difficulty);
+    const tagOk =
+      settings.selectedTags.length === 0 ||
+      q.tags.some((t) => settings.selectedTags.includes(t));
+    return diffOk && tagOk;
+  });
+}
+
+/** Split questions into the four natural buckets. */
+function splitBuckets(
+  filtered: Question[],
+  cardStates: Record<number, CardState>,
+  injectedIds: Set<number>,
+  recentIds: Set<number>,
+  now: Date,
+): {
+  injected: Question[];
+  due: Question[];
+  newCards: Question[];
+  upcoming: Question[];
+} {
+  const rest = filtered.filter(q => !injectedIds.has(q.id));
+
+  const injectedList: Question[] = [];
+  for (const id of injectedIds) {
+    const q = filtered.find(q => q.id === id);
+    if (!q) continue;
+    const st = cardStates[q.id];
+    if (!st || st.progress === "new" || isDue(st)) injectedList.push(q);
+  }
+
+  const due = rest
+    .filter((q) => {
+      const st = cardStates[q.id];
+      return st && st.progress !== "new" && isDue(st);
+    })
+    .sort((a, b) =>
+      new Date(cardStates[a.id].nextDueAt).getTime() -
+      new Date(cardStates[b.id].nextDueAt).getTime()
+    );
+
+  const newCards = rest
+    .filter((q) => {
+      const st = cardStates[q.id];
+      if (!st) return true;
+      if (st.progress !== "new") return false;
+      return new Date(st.nextDueAt) <= now;
+    })
+    .sort((a, b) => a.id - b.id);
+
+  const upcoming = rest
+    .filter((q) => {
+      const st = cardStates[q.id];
+      if (!st) return false;
+      if (isDue(st)) return false;
+      return st.progress !== "new" || new Date(st.nextDueAt) > now;
+    })
+    .sort((a, b) =>
+      new Date(cardStates[a.id].nextDueAt).getTime() -
+      new Date(cardStates[b.id].nextDueAt).getTime()
+    );
+
+  // Deprioritise recently-seen cards within each bucket
+  const order = (arr: Question[]) => [
+    ...arr.filter((q) => !recentIds.has(q.id)),
+    ...arr.filter((q) => recentIds.has(q.id)),
+  ];
+
+  return {
+    injected: order(injectedList),
+    due: order(due),
+    newCards: order(newCards),
+    upcoming: order(upcoming),
+  };
+}
+
+// ── Public: typed queues for display ─────────────────────────────────
+
+export interface TypedQueues {
+  injected: Question[];
+  due: Question[];
+  new: Question[];
+  upcoming: Question[];
+}
+
+/**
+ * Returns the three active queues (injected / due / new) plus upcoming,
+ * each in their natural priority order.  Used by GlobalQueueDrawer tabs.
+ */
+export function buildTypedQueues(
+  questions: Question[],
+  cardStates: Record<number, CardState>,
+  settings: UserSettings,
+  session: LearnSession,
+  excludeIds?: Set<number>,
+): TypedQueues {
+  const filtered = filterQuestions(questions, settings, undefined, excludeIds);
+  const recentIds = new Set(session.recentQuestionIds.slice(-5));
+  const injectedIds = new Set(session.injectedQuestionIds ?? []);
+  const now = new Date();
+  const { injected, due, newCards, upcoming } = splitBuckets(
+    filtered, cardStates, injectedIds, recentIds, now,
+  );
+  return { injected, due, new: newCards, upcoming };
+}
+
+// ── Public: interleaved batch builder ────────────────────────────────
+
+/**
+ * Builds a batch of up to `size` cards interleaved according to `ratio`.
+ *
+ * Uses Bresenham-style deficit tracking so that, at every position in the
+ * batch, the type that is most "behind" its target proportion gets the next
+ * slot.  If a type's queue is exhausted the deficit is carried by the
+ * remaining types.
+ */
+export function buildInterleavedBatch(
+  questions: Question[],
+  cardStates: Record<number, CardState>,
+  settings: UserSettings,
+  session: LearnSession,
+): Question[] {
+  const size = settings.sessionSize ?? 10;
+  const ratio: CardMixRatio = settings.cardMix ?? { injected: 0, due: 7, new: 3 };
+  const total = ratio.injected + ratio.due + ratio.new || 10;
+
+  const filtered = filterQuestions(questions, settings);
+  const recentIds = new Set(session.recentQuestionIds.slice(-5));
+  const injectedIds = new Set(session.injectedQuestionIds ?? []);
+  const now = new Date();
+
+  const { injected, due, newCards } = splitBuckets(
+    filtered, cardStates, injectedIds, recentIds, now,
+  );
+
+  let injIdx = 0, dueIdx = 0, newIdx = 0;
+  const counts = { injected: 0, due: 0, new: 0 };
+  const targets = {
+    injected: ratio.injected / total,
+    due: ratio.due / total,
+    new: ratio.new / total,
+  };
+
+  const result: Question[] = [];
+
+  for (let slot = 0; slot < size; slot++) {
+    // Desired cumulative count for each type at this position
+    const desired = {
+      injected: targets.injected * (slot + 1),
+      due: targets.due * (slot + 1),
+      new: targets.new * (slot + 1),
+    };
+
+    // Sort types by deficit (desired - actual), highest first
+    const order: CardType[] = (["injected", "due", "new"] as CardType[]).sort(
+      (a, b) => (desired[b] - counts[b]) - (desired[a] - counts[a]),
+    );
+
+    let picked = false;
+    for (const type of order) {
+      if (type === "injected" && injIdx < injected.length) {
+        result.push(injected[injIdx++]); counts.injected++; picked = true; break;
+      }
+      if (type === "due" && dueIdx < due.length) {
+        result.push(due[dueIdx++]); counts.due++; picked = true; break;
+      }
+      if (type === "new" && newIdx < newCards.length) {
+        result.push(newCards[newIdx++]); counts.new++; picked = true; break;
+      }
+    }
+
+    if (!picked) break; // no more cards of any type
+  }
+
+  return result;
+}
+
+// ── Legacy: flat queue used by selectNextCard ─────────────────────────
 
 /**
  * Returns the same deterministic ordered list used by both:
@@ -15,93 +205,24 @@ export function buildQueue(
   settings: UserSettings,
   session: LearnSession,
   excludeId?: number,
-  /** When true, upcoming (not-yet-due) cards are excluded — used for batch building */
+  /** When true, upcoming (not-yet-due) cards are excluded */
   batchOnly = false,
-  /** Extra set of IDs to exclude — used by global queue display to hide local batch cards */
+  /** Extra set of IDs to exclude */
   excludeIds?: Set<number>,
 ): Question[] {
-  const filtered = questions.filter((q) => {
-    if (excludeId !== undefined && q.id === excludeId) return false;
-    if (excludeIds?.has(q.id)) return false;
-    const diffOk = settings.selectedDifficulties.includes(q.difficulty);
-    const tagOk =
-      settings.selectedTags.length === 0 ||
-      q.tags.some((t) => settings.selectedTags.includes(t));
-    return diffOk && tagOk;
-  });
-
+  const filtered = filterQuestions(questions, settings, excludeId, excludeIds);
   if (filtered.length === 0) return [];
 
   const recentIds = new Set(session.recentQuestionIds.slice(-5));
+  const injectedIds = new Set(session.injectedQuestionIds ?? []);
   const now = new Date();
 
-  // Injected cards go first in the GLOBAL queue display only (batchOnly=false),
-  // in the order they were added. When building a local batch (batchOnly=true)
-  // they are ignored — the batch takes the top-N by natural priority only.
-  const injectedIds = new Set(session.injectedQuestionIds ?? []);
-  const injected: Question[] = [];
-  if (!batchOnly) {
-    for (const id of (session.injectedQuestionIds ?? [])) {
-      if (id === excludeId || excludeIds?.has(id)) continue;
-      const q = filtered.find(q => q.id === id);
-      if (!q) continue;
-      // Only pin to the top if the card is unseen or actually due.
-      // Already-answered, not-yet-due cards fall into their natural bucket.
-      const st = cardStates[q.id];
-      if (!st || st.progress === "new" || isDue(st)) {
-        injected.push(q);
-      }
-    }
-  }
-
-  const rest = filtered.filter(q =>
-    batchOnly ? true : !injectedIds.has(q.id)
+  const { injected, due, newCards, upcoming } = splitBuckets(
+    filtered, cardStates, injectedIds, recentIds, now,
   );
 
-  // Due cards (not new), oldest nextDueAt first
-  const due = rest
-    .filter((q) => {
-      const st = cardStates[q.id];
-      return st && st.progress !== "new" && isDue(st);
-    })
-    .sort((a, b) =>
-      new Date(cardStates[a.id].nextDueAt).getTime() -
-      new Date(cardStates[b.id].nextDueAt).getTime()
-    );
-
-  // New cards — never seen (no state) OR progress=new AND not snoozed
-  // Key: a snoozed new card has a future nextDueAt and must be excluded here
-  const newCards = rest
-    .filter((q) => {
-      const st = cardStates[q.id];
-      if (!st) return true;                     // truly unseen
-      if (st.progress !== "new") return false;
-      return new Date(st.nextDueAt) <= now;     // snoozed new cards have future nextDueAt
-    })
-    .sort((a, b) => a.id - b.id);
-
-  // Not-yet-due cards (soonest first) — includes snoozed/hidden "new" cards
-  const upcoming = rest
-    .filter((q) => {
-      const st = cardStates[q.id];
-      if (!st) return false;
-      if (isDue(st)) return false;
-      // non-new cards that aren't due yet, plus snoozed/hidden new cards
-      return st.progress !== "new" || new Date(st.nextDueAt) > now;
-    })
-    .sort((a, b) =>
-      new Date(cardStates[a.id].nextDueAt).getTime() -
-      new Date(cardStates[b.id].nextDueAt).getTime()
-    );
-
-  // Within each bucket: non-recent first, then recent
-  const order = (arr: Question[]) => [
-    ...arr.filter((q) => !recentIds.has(q.id)),
-    ...arr.filter((q) => recentIds.has(q.id)),
-  ];
-
-  if (batchOnly) return [...injected, ...order(due), ...order(newCards)];
-  return [...injected, ...order(due), ...order(newCards), ...order(upcoming)];
+  if (batchOnly) return [...injected, ...due, ...newCards];
+  return [...injected, ...due, ...newCards, ...upcoming];
 }
 
 /** Always returns the top of the deterministic queue. */

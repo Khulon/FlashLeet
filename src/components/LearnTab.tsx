@@ -9,7 +9,7 @@ import {
   getUserSettings, getLearnSession, saveLearnSession,
 } from "@/lib/storage";
 import { createInitialCardState, updateCardState, isDue } from "@/lib/scheduler";
-import { buildQueue } from "@/lib/queue";
+import { buildInterleavedBatch } from "@/lib/queue";
 import { useTimer } from "@/lib/useTimer";
 import { useDebounce } from "@/lib/useDebounce";
 import QueueDrawer from "@/components/QueueDrawer";
@@ -163,40 +163,21 @@ export default function LearnPage() {
     qs: Question[], cs: Record<number, CardState>, s: UserSettings,
   ) => {
     const sess = await getLearnSession();
-    const size = s.sessionSize ?? 10;
 
-    // Injected cards go at the front — but only if unseen or actually due.
-    // Cards that were already answered and aren't due yet are "stale" injections:
-    // they get cleaned out of injectedQuestionIds without entering the batch.
-    const injectedIds: number[] = sess.injectedQuestionIds ?? [];
-    const injected = injectedIds
-      .map(id => qs.find(q => q.id === id))
-      .filter((q): q is Question => {
-        if (!q) return false;
-        const st = cs[q.id];
-        return !st || st.progress === "new" || isDue(st);  // unseen or due only
-      })
-      .slice(0, size);
-
-    // Fill remaining from natural priority queue (excluding injected)
-    const injectedSet = new Set(injected.map(q => q.id));
-    const remaining = size - injected.length;
-    const natural = remaining > 0
-      ? buildQueue(qs, cs, s, sess, undefined, true, injectedSet).slice(0, remaining)
-      : [];
-
-    const batch = [...injected, ...natural];
+    // Build the interleaved batch according to the card mix ratio.
+    // Injected cards are now spread throughout the batch (not front-loaded).
+    const batch = buildInterleavedBatch(qs, cs, s, sess);
 
     setBatchQueue(batch);
     setBatchIndex(0);
     setSessionDone(false);
     if (batch.length === 0) { setCurrentQ(null); return; }
 
-    // Remove IDs that were consumed OR are stale (answered, not due).
-    // IDs that didn't fit the size limit stay for the next session.
-    const consumedIds = new Set(injected.map(q => q.id));
+    // Remove injected IDs that were consumed into the batch OR are stale.
+    const injectedIds: number[] = sess.injectedQuestionIds ?? [];
+    const batchIdSet = new Set(batch.map(q => q.id));
     const remainingInjectedIds = injectedIds.filter(id => {
-      if (consumedIds.has(id)) return false;                // consumed into batch
+      if (batchIdSet.has(id)) return false;          // consumed into batch
       const st = cs[id];
       if (st && st.progress !== "new" && !isDue(st)) return false;  // stale, drop it
       return true;

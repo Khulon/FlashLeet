@@ -3,7 +3,9 @@
 import { useEffect, useState } from "react";
 import { Difficulty, UserSettings, AiProvider, SRSettings } from "@/lib/types";
 import { getUserSettings, saveUserSettings, getQuestions } from "@/lib/storage";
-import { Settings, Tag, Bot, Eye, EyeOff, Plug, Brain, Check, Save, BookOpen, Layers } from "lucide-react";
+import { Settings, Tag, Bot, Eye, EyeOff, Plug, Brain, Check, Save, BookOpen, Layers, Shuffle } from "lucide-react";
+import { CardMixRatio } from "@/lib/types";
+import DualRangeSlider from "@/components/DualRangeSlider";
 
 const ALL_DIFFICULTIES: Difficulty[] = ["Easy", "Medium", "Hard"];
 const DIFF_COLORS: Record<Difficulty, { border: string; bg: string; text: string; shadow: string }> = {
@@ -46,7 +48,8 @@ export default function SettingsPage() {
     </div>
   );
 
-  const patch   = (p: Partial<UserSettings>) => { setSettings(prev => ({ ...prev!, ...p })); setSaved(false); };
+  const patch      = (p: Partial<UserSettings>) => { setSettings(prev => ({ ...prev!, ...p })); setSaved(false); };
+  const patchMix   = (p: Partial<CardMixRatio>) => { setSettings(prev => ({ ...prev!, cardMix: { ...prev!.cardMix, ...p } })); setSaved(false); };
   const patchAi = (p: Partial<UserSettings["ai"]>) => { setSettings(prev => ({ ...prev!, ai: { ...prev!.ai, ...p } })); setSaved(false); };
   const patchSR = (p: Partial<SRSettings>) => { setSettings(prev => ({ ...prev!, sr: { ...prev!.sr, ...p } })); setSaved(false); };
 
@@ -131,6 +134,96 @@ export default function SettingsPage() {
             );
           })}
         </div>
+      </div>
+
+      {/* ── Card Mix ── */}
+      <div className="card-surface" style={{ padding: "24px" }}>
+        <h2 style={{ fontWeight: 900, fontSize: 17, marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
+          <Shuffle size={16} style={{ color: "var(--purple)" }} /> Card Mix
+        </h2>
+        <p style={{ color: "var(--text-dim)", fontSize: 13, fontWeight: 600, marginBottom: 20 }}>
+          How many of each card type appear per 10 cards. Drag the handles to set the ratio.
+          If a bucket is empty its slots go to the others.
+        </p>
+
+        {/* Dual-knob visual slider */}
+        {(() => {
+          const mix = settings.cardMix ?? { injected: 0, due: 7, new: 3 };
+          const leftKnob  = mix.injected;                  // 0–10
+          const rightKnob = mix.injected + mix.due;        // leftKnob–10
+
+          const pct = (n: number) => `${n * 10}%`;
+
+          return (
+            <div>
+              {/* Colour bar */}
+              <div style={{ position: "relative", height: 28, borderRadius: 14, overflow: "hidden", marginBottom: 8, background: "var(--bg-2)" }}>
+                {/* Injected segment */}
+                <div style={{
+                  position: "absolute", left: 0, top: 0, bottom: 0,
+                  width: pct(leftKnob),
+                  background: "var(--purple)", transition: "width 0.1s",
+                }} />
+                {/* Due segment */}
+                <div style={{
+                  position: "absolute", left: pct(leftKnob), top: 0, bottom: 0,
+                  width: pct(rightKnob - leftKnob),
+                  background: "#ff9f43", transition: "left 0.1s, width 0.1s",
+                }} />
+                {/* New segment */}
+                <div style={{
+                  position: "absolute", left: pct(rightKnob), top: 0, bottom: 0,
+                  right: 0,
+                  background: "var(--green)", transition: "left 0.1s",
+                }} />
+                {/* Labels inside bar */}
+                {leftKnob >= 2 && (
+                  <span style={{ position: "absolute", left: pct(leftKnob / 2), transform: "translateX(-50%)", top: "50%", marginTop: -7, fontSize: 11, fontWeight: 900, color: "#fff", pointerEvents: "none" }}>
+                    {mix.injected}
+                  </span>
+                )}
+                {(rightKnob - leftKnob) >= 2 && (
+                  <span style={{ position: "absolute", left: pct((leftKnob + rightKnob) / 2), transform: "translateX(-50%)", top: "50%", marginTop: -7, fontSize: 11, fontWeight: 900, color: "#fff", pointerEvents: "none" }}>
+                    {mix.due}
+                  </span>
+                )}
+                {(10 - rightKnob) >= 2 && (
+                  <span style={{ position: "absolute", left: pct((rightKnob + 10) / 2), transform: "translateX(-50%)", top: "50%", marginTop: -7, fontSize: 11, fontWeight: 900, color: "#fff", pointerEvents: "none" }}>
+                    {mix.new}
+                  </span>
+                )}
+              </div>
+
+              {/* Dual-handle slider */}
+              <div style={{ marginBottom: 12 }}>
+                <DualRangeSlider
+                  left={leftKnob}
+                  right={rightKnob}
+                  onChange={(newLeft, newRight) => {
+                    patchMix({ injected: newLeft, due: newRight - newLeft, new: 10 - newRight });
+                  }}
+                />
+              </div>
+
+              {/* Legend */}
+              <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+                {[
+                  { label: "Injected", value: mix.injected, color: "var(--purple)" },
+                  { label: "Due",      value: mix.due,      color: "#ff9f43" },
+                  { label: "New",      value: mix.new,      color: "var(--green-dk)" },
+                ].map(({ label, value, color }) => (
+                  <div key={label} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ width: 10, height: 10, borderRadius: 3, background: color, display: "inline-block" }} />
+                    <span style={{ fontSize: 13, fontWeight: 800, color: "var(--text-dim)" }}>{label}</span>
+                    <span style={{ fontSize: 13, fontWeight: 900, color, fontFamily: "var(--font-mono)" }}>
+                      {value}/10
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* ── Difficulty ── */}

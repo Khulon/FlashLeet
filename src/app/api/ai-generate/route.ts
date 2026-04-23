@@ -17,6 +17,7 @@ const DEFAULT_SETTINGS: UserSettings = {
   selectedDifficulties: ["Easy", "Medium", "Hard"],
   selectedTags: [],
   sessionSize: 10,
+  cardMix: { injected: 0, due: 7, new: 3 },
   sr: DEFAULT_SR,
   ai: {
     provider: "openai",

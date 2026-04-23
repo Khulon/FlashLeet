@@ -1,5 +1,6 @@
 export type Difficulty = "Easy" | "Medium" | "Hard";
 export type ProgressState = "new" | "learning" | "review" | "mastered";
+export type CardType = "injected" | "due" | "new";
 export type AiProvider = "openai" | "deepseek" | "custom";
 
 export interface Example {
@@ -55,10 +56,17 @@ export interface AiSettings {
   promptCode: string;    // system prompt for code generation
 }
 
+export interface CardMixRatio {
+  injected: number;  // slots out of 10
+  due: number;
+  new: number;
+}
+
 export interface UserSettings {
   selectedDifficulties: Difficulty[];
   selectedTags: string[];
   sessionSize: number;   // how many cards per session (default 10)
+  cardMix: CardMixRatio; // how to interleave injected/due/new cards (must sum to 10)
   sr: SRSettings;
   ai: AiSettings;
 }
